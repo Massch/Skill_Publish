@@ -1,0 +1,10 @@
+{
+  "bitbucket": {
+    "enabled": false,
+    "remoteUrl": null
+  },
+  "confluence": {
+    "enabled": false,
+    "path": null
+  }
+}
