@@ -100,7 +100,7 @@ Push:
 git push bitbucket [current-branch]
 ```
 
-If this fails due to a wrong URL, ask the user: "The Bitbucket push failed — would you like to correct the remote URL in `.publish-config.json`?" If yes, update the file, re-add the remote, and retry. If it fails for any other reason (auth, network), note the error for the summary and continue. Do NOT stop.
+If the push fails for any reason, ask the user: "Bitbucket push failed: [error message]. Would you like to (1) correct the remote URL in `.publish-config.json` and retry, or (2) skip Bitbucket and continue?" Act on their choice. Do NOT stop without asking.
 
 ---
 
@@ -122,20 +122,21 @@ Classify files:
 Parse `confluence.path` by splitting on ` > `.
 Example: `"IT Development > Finance > Aldipress"` → `["IT Development", "Finance", "Aldipress"]`
 
-**Get cloud ID:**
-Use `mcp__claude_ai_Atlassian__getAccessibleAtlassianResources` — look for the Confluence product in the results and extract the `cloudId`.
-
 **Find the space:**
 Use `mcp__claude_ai_Atlassian__getConfluenceSpaces` to list spaces. Match the first segment (e.g. `IT Development`) against the `name` field. Extract the `spaceKey`.
 
 If not found: report "Confluence space not found: [segment]" and skip this step.
 
 **Navigate sub-pages:**
-For each remaining segment (e.g. `Finance`, then `Aldipress`), search for it under the previous parent:
+For the **first** remaining segment (e.g. `Finance`), search without an ancestor filter:
+
+CQL: `title = "[segment]" AND space = "[spaceKey]"`
+
+For each **subsequent** segment (e.g. `Aldipress`), add the ancestor from the previous result:
 
 CQL: `title = "[segment]" AND space = "[spaceKey]" AND ancestor = [previous-page-id]`
 
-Use `mcp__claude_ai_Atlassian__searchConfluenceUsingCql` with that query. Take the first result's `id` as the parent for the next segment.
+Use `mcp__claude_ai_Atlassian__searchConfluenceUsingCql` for each query. Take the first result's `id` as the parent for the next segment.
 
 If not found at any level: report "Confluence path not found at: [missing segment]" and skip.
 
@@ -171,7 +172,7 @@ For each `.md` file in `docs/`:
 **Check if page exists:**
 CQL: `title = "[page-title]" AND space = "[spaceKey]" AND ancestor = [projectPageId]`
 
-- **If found:** Update the page using `mcp__claude_ai_Atlassian__updateConfluencePage` — pass the markdown content as the body.
+- **If found:** First retrieve the current version: call `mcp__claude_ai_Atlassian__getConfluencePage` with the page ID and extract `version.number`. Increment it by 1. Then call `mcp__claude_ai_Atlassian__updateConfluencePage` passing the incremented version number and the markdown content as the body.
 - **If not found:** Create the page using `mcp__claude_ai_Atlassian__createConfluencePage` with the project parent as parent.
 
 Track a counter: pages created + pages updated.
@@ -180,11 +181,13 @@ Track a counter: pages created + pages updated.
 
 For each attachment file in `docs/`:
 
-Use `mcp__claude_ai_Atlassian__fetchAtlassian` with:
-- Method: `POST`
-- Path: `/wiki/rest/api/content/[projectPageId]/child/attachment`
-- Headers: `{"X-Atlassian-Token": "no-check"}`
-- Body: the file content as multipart/form-data
+First check if an attachment with the same filename already exists:
+- Call `mcp__claude_ai_Atlassian__fetchAtlassian` GET `/wiki/rest/api/content/[projectPageId]/child/attachment?filename=[filename]`
+- If a result is returned, note the existing attachment `id`.
+
+Then upload:
+- **If attachment exists (replace):** Use `mcp__claude_ai_Atlassian__fetchAtlassian` PUT `/wiki/rest/api/content/[projectPageId]/child/attachment/[attachment-id]/data` with headers `{"X-Atlassian-Token": "no-check"}` and the file content as multipart/form-data.
+- **If attachment does not exist (new):** Use `mcp__claude_ai_Atlassian__fetchAtlassian` POST `/wiki/rest/api/content/[projectPageId]/child/attachment` with headers `{"X-Atlassian-Token": "no-check"}` and the file content as multipart/form-data.
 
 If the upload fails (binary files may not be supported by the MCP tool), note in summary:
 `"⚠ [filename] — could not attach, manual upload required"`
@@ -206,7 +209,7 @@ Publish complete: [project name]
 
 ✓ Confluence — [N] page(s) created, [N] updated, [N] file(s) attached
     [full path, e.g. IT Development > Finance > Aldipress > [project name]]
-  (or): — not configured for this project
+  (or): ✗ Confluence — not configured for this project
   (or): ✗ Confluence — [error reason]
 ──────────────────────────────────────────
 ```
