@@ -1,0 +1,15 @@
+{
+  "name": "local-skills",
+  "description": "Personal Claude Code skills",
+  "owner": {
+    "name": "masschelein"
+  },
+  "plugins": [
+    {
+      "name": "publish",
+      "description": "Publish a finished project to company Bitbucket and/or Confluence",
+      "version": "1.0.0",
+      "source": "./"
+    }
+  ]
+}
