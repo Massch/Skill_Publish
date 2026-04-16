@@ -39,7 +39,9 @@ Use the Read tool to check if `.publish-config.json` exists at the project root.
 Ask the user these questions **one at a time**:
 
 1. "Should this project push to your company Bitbucket? (yes/no)"
-   - If yes: "What is the Bitbucket remote URL? (e.g. https://bitbucket.org/ampconnect/api-oliver.git)"
+   - If yes: derive a proposed URL from the project name (lowercase, underscores → hyphens): `https://bitbucket.org/ampconnect/[slug].git`
+     Ask: "I'll use **https://bitbucket.org/ampconnect/[slug].git** — OK, or paste a different URL?"
+     Accept any confirmation word (ok, yes, fine, …) as approval. Only replace the URL if the user types a different one.
    - **Load saved credentials** (needed for authenticated API calls): Use the Read tool on `~/.claude/publish-credentials.json`.
      - If it exists, parse and use the saved `username` and `apiToken` silently — do NOT ask the user.
      - If it does not exist, credentials will be requested later if needed (e.g. repo creation).
@@ -62,7 +64,9 @@ Ask the user these questions **one at a time**:
        Without project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true}'`
      Confirm success (response should include `"scm": "git"`) before proceeding.
 2. "Should this project publish its docs/ folder to Confluence? (yes/no)"
-   - If yes: "What is the full Confluence parent path? Enter all levels separated by ' > ' — e.g. IT Development > Finance > Aldipress"
+   - If yes: propose the standard path: `IT Development > Projects > [project-name]`
+     Ask: "I'll publish under **IT Development > Projects > [project-name]** — OK, or type a different path?"
+     Accept any confirmation word (ok, yes, fine, …) as approval. Only replace the path if the user types a different one.
 
 Write `.publish-config.json` at the project root:
 
