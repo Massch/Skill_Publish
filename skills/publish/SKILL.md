@@ -43,25 +43,25 @@ Ask the user these questions **one at a time**:
      Ask: "I'll use **https://bitbucket.org/ampconnect/[slug].git** — OK, or paste a different URL?"
      Accept any confirmation word (ok, yes, fine, …) as approval. Only replace the URL if the user types a different one.
    - **Load saved credentials** (needed for authenticated API calls): Use the Read tool on `~/.claude/publish-credentials.json`.
-     - If it exists, parse and use the saved `username` and `apiToken` silently — do NOT ask the user.
+     - If it exists, parse and use `bitbucket.username` and `bitbucket.apiToken` silently — do NOT ask the user.
      - If it does not exist, credentials will be requested later if needed (e.g. repo creation).
    - **Check if the repository exists.** Parse workspace and slug from the URL. Run:
-     - If credentials are available: `curl -s -o /dev/null -w "%{http_code}" https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}"`
+     - If credentials are available: `curl -s -o /dev/null -w "%{http_code}" https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{bitbucket.username}:{bitbucket.apiToken}"`
      - If no credentials yet: `curl -s -o /dev/null -w "%{http_code}" https://api.bitbucket.org/2.0/repositories/{workspace}/{slug}`
    - If the response is `404`: the repo does not exist. Ask: "The repository does not exist yet. Should I create it? (yes/no)"
      If yes:
      - **Ensure credentials are available:** If not already loaded, ask:
        - "What is your Bitbucket username?"
        - "What is your Bitbucket API token?"
-       Save to `~/.claude/publish-credentials.json`: `{"username": "...", "apiToken": "..."}` — so future projects never need to ask.
+       Save under `bitbucket` key in `~/.claude/publish-credentials.json` — so future projects never need to ask.
      - **Ask about the Bitbucket project:** "Should this repo be created under the 'Masschelein' project? (yes/no, or type a different project name)"
        - If yes or a name is given: look up the project key:
-         `curl -s "https://api.bitbucket.org/2.0/workspaces/{workspace}/projects/?q=name+%3D+%22{project-name}%22" -u "{username}:{apiToken}"`
+         `curl -s "https://api.bitbucket.org/2.0/workspaces/{workspace}/projects/?q=name+%3D+%22{project-name}%22" -u "{bitbucket.username}:{bitbucket.apiToken}"`
          Extract the `key` field from the first result. If not found, warn the user and create without a project.
        - If no: create without project assignment.
      - **Create the repository:**
-       With project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true,"project":{"key":"{project-key}"}}'`
-       Without project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true}'`
+       With project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{bitbucket.username}:{bitbucket.apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true,"project":{"key":"{project-key}"}}'`
+       Without project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{bitbucket.username}:{bitbucket.apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true}'`
      Confirm success (response should include `"scm": "git"`) before proceeding.
 2. "Should this project publish its docs/ folder to Confluence? (yes/no)"
    - If yes: propose the standard path: `IT Development > Projects > [project-name]`
@@ -99,8 +99,35 @@ Read it with the Read tool. Parse the JSON. Announce: "Config loaded. Publishing
 
 ## Step 3: Push to GitHub
 
+**Ensure `origin` remote is set:**
 ```bash
-git push origin [current-branch]
+git remote get-url origin
+```
+If not set, derive the URL automatically — `https://github.com/Massch/[project-name].git` — and add it:
+```bash
+git remote add origin https://github.com/Massch/[project-name].git
+```
+
+**Ensure the GitHub repository exists:**
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/Massch/[project-name]
+```
+- If `200`: repo exists, proceed to push.
+- If `404`: create it automatically.
+  - Load `github.token` from `~/.claude/publish-credentials.json`.
+  - If empty or missing: ask "What is your GitHub personal access token?" and save it under `github.token`.
+  - Create:
+    ```bash
+    curl -s -X POST https://api.github.com/user/repos \
+      -H "Authorization: token {github.token}" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"[project-name]","private":true}'
+    ```
+  Confirm success (response includes `"full_name"`).
+
+**Push:**
+```bash
+git push -u origin [current-branch]
 ```
 
 Record result (success or error message) for the summary.
