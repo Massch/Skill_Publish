@@ -1,10 +1,10 @@
 {
   "bitbucket": {
-    "enabled": false,
-    "remoteUrl": null
+    "enabled": true,
+    "remoteUrl": "https://bitbucket.org/ampconnect/skill-publish.git"
   },
   "confluence": {
-    "enabled": false,
-    "path": null
+    "enabled": true,
+    "path": "IT Development > Projects > Skill_Publish"
   }
 }
