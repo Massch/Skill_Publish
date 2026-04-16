@@ -39,7 +39,7 @@ Use the Read tool to check if `.publish-config.json` exists at the project root.
 Ask the user these questions **one at a time**:
 
 1. "Should this project push to your company Bitbucket? (yes/no)"
-   - If yes: "What is the Bitbucket remote URL? (e.g. https://bitbucket.org/company/api-oliver.git)"
+   - If yes: "What is the Bitbucket remote URL? (e.g. https://bitbucket.org/ampconnect/api-oliver.git)"
    - **Load saved credentials** (needed for authenticated API calls): Use the Read tool on `~/.claude/publish-credentials.json`.
      - If it exists, parse and use the saved `username` and `apiToken` silently — do NOT ask the user.
      - If it does not exist, credentials will be requested later if needed (e.g. repo creation).
@@ -70,7 +70,7 @@ Write `.publish-config.json` at the project root:
 {
   "bitbucket": {
     "enabled": true,
-    "remoteUrl": "https://bitbucket.org/company/project.git"
+    "remoteUrl": "https://bitbucket.org/ampconnect/project.git"
   },
   "confluence": {
     "enabled": true,
