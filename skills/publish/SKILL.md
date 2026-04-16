@@ -9,7 +9,8 @@ Deliberately publish the current project to company destinations (Bitbucket and/
 
 ## Before Starting
 
-- The Atlassian MCP must be authenticated (the `mcp__claude_ai_Atlassian__*` tools must work).
+- The Atlassian MCP must be authenticated (the `mcp__claude_ai_Atlassian__*` tools must work — verify with `mcp__claude_ai_Atlassian__atlassianUserInfo`).
+- The Bitbucket MCP must be configured (`bitbucket` server in `~/.claude.json` via `claude mcp add bitbucket --scope user`). If missing, offer to add it.
 - The project must have a local git repo with `origin` pointing to GitHub.
 - Optionally: a `docs/` folder in the project root containing files to publish to Confluence.
 
@@ -39,6 +40,27 @@ Ask the user these questions **one at a time**:
 
 1. "Should this project push to your company Bitbucket? (yes/no)"
    - If yes: "What is the Bitbucket remote URL? (e.g. https://bitbucket.org/company/api-oliver.git)"
+   - **Load saved credentials** (needed for authenticated API calls): Use the Read tool on `~/.claude/publish-credentials.json`.
+     - If it exists, parse and use the saved `username` and `apiToken` silently — do NOT ask the user.
+     - If it does not exist, credentials will be requested later if needed (e.g. repo creation).
+   - **Check if the repository exists.** Parse workspace and slug from the URL. Run:
+     - If credentials are available: `curl -s -o /dev/null -w "%{http_code}" https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}"`
+     - If no credentials yet: `curl -s -o /dev/null -w "%{http_code}" https://api.bitbucket.org/2.0/repositories/{workspace}/{slug}`
+   - If the response is `404`: the repo does not exist. Ask: "The repository does not exist yet. Should I create it? (yes/no)"
+     If yes:
+     - **Ensure credentials are available:** If not already loaded, ask:
+       - "What is your Bitbucket username?"
+       - "What is your Bitbucket API token?"
+       Save to `~/.claude/publish-credentials.json`: `{"username": "...", "apiToken": "..."}` — so future projects never need to ask.
+     - **Ask about the Bitbucket project:** "Should this repo be created under the 'Masschelein' project? (yes/no, or type a different project name)"
+       - If yes or a name is given: look up the project key:
+         `curl -s "https://api.bitbucket.org/2.0/workspaces/{workspace}/projects/?q=name+%3D+%22{project-name}%22" -u "{username}:{apiToken}"`
+         Extract the `key` field from the first result. If not found, warn the user and create without a project.
+       - If no: create without project assignment.
+     - **Create the repository:**
+       With project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true,"project":{"key":"{project-key}"}}'`
+       Without project: `curl -s -X POST https://api.bitbucket.org/2.0/repositories/{workspace}/{slug} -u "{username}:{apiToken}" -H "Content-Type: application/json" -d '{"scm":"git","is_private":true}'`
+     Confirm success (response should include `"scm": "git"`) before proceeding.
 2. "Should this project publish its docs/ folder to Confluence? (yes/no)"
    - If yes: "What is the full Confluence parent path? Enter all levels separated by ' > ' — e.g. IT Development > Finance > Aldipress"
 
@@ -123,7 +145,11 @@ Parse `confluence.path` by splitting on ` > `.
 Example: `"IT Development > Finance > Aldipress"` → `["IT Development", "Finance", "Aldipress"]`
 
 **Find the space:**
-Use `mcp__claude_ai_Atlassian__getConfluenceSpaces` to list spaces. Match the first segment (e.g. `IT Development`) against the `name` field. Extract the `spaceKey`.
+Use `mcp__claude_ai_Atlassian__getConfluenceSpaces` to list spaces. Match the first segment (e.g. `IT Development`) against the `name` field.
+
+Capture **both** values from the matching space:
+- `spaceId` — the numeric `id` field (e.g. `189005833`) — required for `createConfluencePage` calls
+- `spaceKey` — the string `key` field (e.g. `DEV`) — used in CQL queries
 
 If not found: report "Confluence space not found: [segment]" and skip this step.
 
@@ -138,7 +164,14 @@ CQL: `title = "[segment]" AND space = "[spaceKey]" AND ancestor = [previous-page
 
 Use `mcp__claude_ai_Atlassian__searchConfluenceUsingCql` for each query. Take the first result's `id` as the parent for the next segment.
 
-If not found at any level: report "Confluence path not found at: [missing segment]" and skip.
+**If a segment is not found:** do NOT skip — **create it** instead:
+Use `mcp__claude_ai_Atlassian__createConfluencePage` with:
+- `spaceId` = the numeric space ID captured above
+- parent ID = the page ID resolved so far (use the space homepage ID for the first missing segment — find it by searching `ancestor = null AND space = "[spaceKey]" AND title = "[space-name]"` or omit ancestor to create at root)
+- title = the missing segment name
+- body = (minimal placeholder, e.g. `[segment name]`)
+
+Continue navigating or creating until all segments in the path are resolved.
 
 Store the final resolved page ID as `parentPageId`.
 
@@ -151,7 +184,7 @@ CQL: `title = "[project-name]" AND space = "[spaceKey]" AND ancestor = [parentPa
 - **If not found:** Create it:
   Use `mcp__claude_ai_Atlassian__createConfluencePage` with:
   - parent ID = `parentPageId`
-  - space key = `spaceKey`
+  - `spaceId` = the numeric space ID (NOT the string `spaceKey`)
   - title = project name (e.g. `API-oliver`)
   - body = `Documentation for [project name].`
 
@@ -169,6 +202,8 @@ For each `.md` file in `docs/`:
 
 **Read the file content** using the Read tool.
 
+> **Large file warning:** The Read tool has a limit of ~10,000 tokens per call (~300 lines / ~30 KB). If the file is large, read it in chunks using `offset` and `limit` parameters. If the full content would exceed ~30 KB, publish a **condensed summary page** instead — include section headings, tables, key decisions, and add a prominent note: *"Full implementation details are in the [GitHub repository](origin-url)."* Summaries are more useful to Confluence readers than raw implementation plans anyway.
+
 **Check if page exists:**
 CQL: `title = "[page-title]" AND space = "[spaceKey]" AND ancestor = [projectPageId]`
 
@@ -179,18 +214,12 @@ Track a counter: pages created + pages updated.
 
 ### 5e. Attach non-markdown files to the project parent page
 
-For each attachment file in `docs/`:
+> **Important:** `mcp__claude_ai_Atlassian__fetchAtlassian` only accepts Atlassian Resource Identifiers (ARIs) — it cannot be used for arbitrary REST API paths. Attachment upload via REST API is **not supported** through this MCP tool.
 
-First check if an attachment with the same filename already exists:
-- Call `mcp__claude_ai_Atlassian__fetchAtlassian` GET `/wiki/rest/api/content/[projectPageId]/child/attachment?filename=[filename]`
-- If a result is returned, note the existing attachment `id`.
+For each attachment file in `docs/`, note in the summary:
+`"⚠ [filename] — manual upload required (attachment API not supported via MCP)"`
 
-Then upload:
-- **If attachment exists (replace):** Use `mcp__claude_ai_Atlassian__fetchAtlassian` PUT `/wiki/rest/api/content/[projectPageId]/child/attachment/[attachment-id]/data` with headers `{"X-Atlassian-Token": "no-check"}` and the file content as multipart/form-data.
-- **If attachment does not exist (new):** Use `mcp__claude_ai_Atlassian__fetchAtlassian` POST `/wiki/rest/api/content/[projectPageId]/child/attachment` with headers `{"X-Atlassian-Token": "no-check"}` and the file content as multipart/form-data.
-
-If the upload fails (binary files may not be supported by the MCP tool), note in summary:
-`"⚠ [filename] — could not attach, manual upload required"`
+Direct the user to upload attachments manually to the project page in Confluence after the publish run completes.
 
 ---
 
